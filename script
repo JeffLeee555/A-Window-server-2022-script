@@ -1,0 +1,61 @@
+# Ensure the script is running as an administrator
+if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
+    Write-Output "Please run this script as an Administrator."
+    exit
+}
+
+# 1. Account Policies
+# Set password complexity, lockout threshold, and duration
+Write-Output "Setting account policies..."
+secedit /export /cfg C:\Windows\Temp\secpol.cfg
+(gc C:\Windows\Temp\secpol.cfg).replace("PasswordComplexity = 0","PasswordComplexity = 1") | Out-File C:\Windows\Temp\secpol.cfg -Force
+(gc C:\Windows\Temp\secpol.cfg).replace("LockoutBadCount = 0","LockoutBadCount = 5") | Out-File C:\Windows\Temp\secpol.cfg -Force
+(gc C:\Windows\Temp\secpol.cfg).replace("LockoutDuration = 0","LockoutDuration = 15") | Out-File C:\Windows\Temp\secpol.cfg -Force
+(gc C:\Windows\Temp\secpol.cfg).replace("ResetLockoutCount = 0","ResetLockoutCount = 15") | Out-File C:\Windows\Temp\secpol.cfg -Force
+secedit /configure /db secedit.sdb /cfg C:\Windows\Temp\secpol.cfg /overwrite
+Remove-Item C:\Windows\Temp\secpol.cfg
+
+# 2. Audit Policies
+# Enable audit policies for logon and account logon events
+Write-Output "Configuring audit policies..."
+auditpol /set /subcategory:"Logon" /success:enable /failure:enable
+auditpol /set /subcategory:"Account Logon" /success:enable /failure:enable
+
+# 3. Windows Firewall
+# Enable Windows Firewall on all profiles
+Write-Output "Enabling Windows Firewall..."
+Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True
+
+# 4. Disable Unnecessary Services
+# Disable unneeded services like Remote Registry, Xbox services, and Print Spooler if not needed
+Write-Output "Disabling unnecessary services..."
+Set-Service -Name "RemoteRegistry" -StartupType Disabled
+Set-Service -Name "XblGameSave" -StartupType Disabled
+Set-Service -Name "XboxGipSvc" -StartupType Disabled
+Set-Service -Name "Spooler" -StartupType Disabled  # Disable Print Spooler if not used
+
+# 5. Windows Update (Install Latest Updates)
+# Install updates (requires Windows Update PowerShell module)
+Write-Output "Installing security updates..."
+Install-WindowsUpdate -AcceptAll -IgnoreReboot
+
+# 6. User and Group Permissions
+# Ensure only approved users are in the Administrators group
+Write-Output "Ensuring only authorized users in Administrators group..."
+$authorizedAdmins = @("Administrator", "cyberpatriot")
+$admins = Get-LocalGroupMember -Group "Administrators"
+foreach ($admin in $admins) {
+    if ($admin.Name -notin $authorizedAdmins) {
+        Remove-LocalGroupMember -Group "Administrators" -Member $admin.Name
+        Write-Output "Removed unauthorized admin: $($admin.Name)"
+    }
+}
+
+# 7. Disable Guest Account
+Write-Output "Disabling Guest account..."
+Disable-LocalUser -Name "Guest"
+
+# Final Output
+Write-Output "System hardening script for Windows Server 2022 completed."
+
+
